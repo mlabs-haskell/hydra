@@ -215,22 +215,27 @@ StorePathSet sendInputs(
 )
 {
     StorePathSet inputs;
-
-    BasicDerivation basicDrv(*step.drv);
-
-    for (auto & p : step.drv->inputSrcs)
-        inputs.insert(p);
-
-    for (auto & input : step.drv->inputDrvs) {
-        auto drv2 = localStore.readDerivation(input.first);
-        for (auto & name : input.second) {
-            if (auto i = get(drv2.outputs, name)) {
-                auto outPath = i->path(localStore, drv2.name, name);
-                inputs.insert(*outPath);
-                basicDrv.inputSrcs.insert(*outPath);
+    BasicDerivation basicDrv;
+        if (auto maybeBasicDrv = step.drv->tryResolve(destStore))
+            basicDrv = *maybeBasicDrv;
+        else {
+            basicDrv = BasicDerivation(*step.drv);
+            for (auto & input : step.drv->inputDrvs) {
+              auto drv2 = localStore.readDerivation(input.first);
+              auto hashes = staticOutputHashes(localStore, drv2);
+              for (auto & name : input.second) {
+                if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations)) {
+                  auto inputRealisation = destStore.queryRealisation(DrvOutput{hashes.at(name), name});
+                  assert(inputRealisation);
+                  inputs.insert(inputRealisation->outPath);
+                  basicDrv.inputSrcs.insert(inputRealisation->outPath);
+		}
             }
         }
     }
+	
+    for (auto & p : step.drv->inputSrcs)
+        inputs.insert(p);
 
     /* Ensure that the inputs exist in the destination store. This is
         a no-op for regular stores, but for the binary cache store,
@@ -580,6 +585,30 @@ void State::buildRemote(ref<Store> destStore,
             result.logFile = "";
         }
 
+	DrvOutputs builtOutputs;
+        if (GET_PROTOCOL_MINOR(conn.remoteVersion) >= 6) {
+            builtOutputs = worker_proto::read(*localStore, conn.from, Phantom<DrvOutputs>{});
+        } else {
+            assert(
+		!step->drv->type().isCA()
+		//TODO(@aciceri) is the new condition equivalent?
+	        //step->drv->type() != DerivationType::CAFloating &&
+		//step->drv->type() != DerivationType::DeferredInputAddressed
+            );
+            auto outputMap = localStore->queryPartialDerivationOutputMap(step->drvPath);
+            auto outputHashes = staticOutputHashes(*localStore, *step->drv);
+            for (auto & [outputName, outputPath] : outputMap)
+              if (outputPath) {
+                auto outputHash = outputHashes.at(outputName);
+                auto drvOutput = DrvOutput{outputHash, outputName};
+                builtOutputs.insert({drvOutput, Realisation{drvOutput, *outputPath}});
+              }
+        }
+    
+        StorePathSet outputs;
+        for (auto & [_, realisation] : builtOutputs)
+            outputs.insert(realisation.outPath);
+
         /* Copy the output paths. */
         if (!machine->isLocalhost() || localStore != std::shared_ptr<Store>(destStore)) {
             updateStep(ssReceivingOutputs);
@@ -587,12 +616,6 @@ void State::buildRemote(ref<Store> destStore,
             MaintainCount<counter> mc(nrStepsCopyingFrom);
 
             auto now1 = std::chrono::steady_clock::now();
-
-            StorePathSet outputs;
-            for (auto & i : step->drv->outputsAndOptPaths(*localStore)) {
-                if (i.second.second)
-                   outputs.insert(*i.second.second);
-            }
 
             size_t totalNarSize = 0;
             auto infos = queryPathInfos(conn, *localStore, outputs, totalNarSize);
@@ -610,6 +633,13 @@ void State::buildRemote(ref<Store> destStore,
             auto now2 = std::chrono::steady_clock::now();
 
             result.overhead += std::chrono::duration_cast<std::chrono::milliseconds>(now2 - now1).count();
+        }
+
+	/* Register the outputs of the newly built drv */
+        if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations)) {
+          for (auto & [_, realisation] : builtOutputs) {
+              localStore->registerDrvOutput(realisation);
+          }
         }
 
         /* Shut down the connection. */
