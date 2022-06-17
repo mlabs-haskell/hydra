@@ -174,7 +174,7 @@ static void worker(
 
             if (auto drv = getDerivation(state, *v, false)) {
 
-                DrvInfo::Outputs outputs = drv->queryOutputs();
+                // DrvInfo::Outputs outputs = drv->queryOutputs();
 
                 if (drv->querySystem() == "unknown")
                     throw EvalError("derivation must have a 'system' attribute");
@@ -231,12 +231,12 @@ static void worker(
                 }
 
                 nlohmann::json out;
-		if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations))
-		    for (auto & j : outputs)
-		        out[j.first] = "";
-		else
-		    for (auto & j : outputs)
-                        out[j.first] = state.store->printStorePath(*j.second);
+		// if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations))
+		//     for (auto & j : outputs)
+		//         out[j.first] = "";
+		// else
+		//     for (auto & j : outputs)
+                //         out[j.first] = state.store->printStorePath(*j.second);
 		job["outputs"] = std::move(out);
 
                 reply["job"] = std::move(job);
