@@ -21,6 +21,7 @@ BuildOutput getBuildOutput(
     for (auto& [outputName, outputPath] : store->queryDerivationOutputMap(drvPath)) {
         store->computeFSClosure(outputPath, closure);
         outputs.insert(outputPath);
+	res.outputs.insert({outputName, outputPath});
     }
     for (auto & path : closure) {
         auto info = store->queryPathInfo(path);

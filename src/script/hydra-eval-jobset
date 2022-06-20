@@ -412,7 +412,7 @@ sub checkBuild {
     my ($db, $jobset, $eval, $inputInfo, $buildInfo, $buildMap, $prevEval, $jobOutPathMap, $plugins) = @_;
 
     my @outputNames = sort keys %{$buildInfo->{outputs}};
-    die unless scalar @outputNames;
+    # die unless scalar @outputNames;
 
     # In various checks we can use an arbitrary output (the first)
     # rather than all outputs, since if one output is the same, the
@@ -444,7 +444,7 @@ sub checkBuild {
                 # the eval), but they give a factor 1000 speedup on
                 # the Nixpkgs jobset with PostgreSQL.
                 { jobset_id => $jobset->get_column('id'), job => $jobName,
-                  name => $firstOutputName, path => $firstOutputPath },
+                  name => $drvPath, path => $drvPath },
                 { rows => 1, columns => ['id', 'finished'], join => ['buildoutputs'] });
             if (defined $prevBuild) {
                 #print STDERR "    already scheduled/built as build ", $prevBuild->id, "\n";
